@@ -25,7 +25,8 @@ var (
 )
 
 func init() {
-	ExchangeRateInstance, err := NewExchangeRate(glog.New())
+	var err error
+	ExchangeRateInstance, err = NewExchangeRate(glog.New())
 	if err != nil {
 		panic(err)
 	}
@@ -52,19 +53,13 @@ type ExchangeRateClient struct {
 // NewExchangeRate
 func NewExchangeRate(logger *glog.Logger) (client *ExchangeRateClient, err error) {
 	// 设置日志
-	logger.SetDebug(false)
 	logger.SetPrefix(logger.GetConfig().Prefix + logTag)
-
 	return &ExchangeRateClient{
 		cron:       gcron.New(),
 		logger:     logger,
 		httpClient: gclient.New(),
 		cache:      gcache.New(),
 	}, nil
-
-}
-func (e *ExchangeRateClient) SetLogger(debug bool) {
-	e.logger.SetDebug(debug)
 }
 
 // StartCron 启动定时任务，自动更新汇率数据并保存到数据库
@@ -192,7 +187,7 @@ func (e *ExchangeRateClient) refresh(ctx context.Context) {
 		e.logger.Error(ctx, "[get remote data null]")
 		return
 	}
-	// e.logger.Info(ctx, "remote exchange rate, CurrencyJPY:", res.Rates[string(CurrencyJPY)])
+	e.logger.Info(ctx, "remote exchange rate, CurrencyJPY:", res.Rates[string(CurrencyJPY)])
 	// 存入缓存
 	for k, v := range res.Rates {
 		e.setCache(ctx, k, v)
