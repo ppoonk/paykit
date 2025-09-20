@@ -16,30 +16,41 @@ import (
 const (
 	sourceApi      = "https://open.er-api.com/v6/latest/CNY"
 	jobName        = "RefreshExchangeRateCronJob"
-	logTag         = "[ExchangeRate]"
+	erLogTag       = "[ExchangeRate]"
+	erLogPath      = "./log/exchange"
+	erLogLevel     = "error"
 	defaultTimeout = 24 * time.Hour
 )
-
-var (
-	ExchangeRateInstance *ExchangeRateClient // 全局单例
-)
-
-func init() {
-	var err error
-	ExchangeRateInstance, err = NewExchangeRate(glog.New())
-	if err != nil {
-		panic(err)
-	}
-	err = ExchangeRateInstance.StartCron()
-	if err != nil {
-		panic(err)
-	}
-}
 
 // exchangeRateResponse  汇率 api 响应结构体
 type exchangeRateResponse struct {
 	BaseCode string             `json:"base_code"`
 	Rates    map[string]float64 `json:"rates"`
+}
+
+// RoundType 取整类型
+type RoundType int
+
+const (
+	RoundTypeDefault RoundType = iota // 默认四舍五入
+	RoundTypeFloor                    // 向下取整
+	RoundTypeCeil                     // 向上取整
+)
+
+var (
+	ERInstance *ExchangeRateClient // 全局单例
+)
+
+func init() {
+	var err error
+	ERInstance, err = NewExchangeRate()
+	if err != nil {
+		panic(err)
+	}
+	err = ERInstance.StartCron()
+	if err != nil {
+		panic(err)
+	}
 }
 
 // ExchangeRateClient
@@ -51,12 +62,17 @@ type ExchangeRateClient struct {
 }
 
 // NewExchangeRate
-func NewExchangeRate(logger *glog.Logger) (client *ExchangeRateClient, err error) {
+func NewExchangeRate() (client *ExchangeRateClient, err error) {
 	// 设置日志
-	logger.SetPrefix(logger.GetConfig().Prefix + logTag)
+	l := glog.New()
+	_ = l.SetPath(erLogPath)
+	_ = l.SetLevelStr(erLogLevel)
+	l.SetPrefix(erLogTag)
+	l.SetStack(false)
+
 	return &ExchangeRateClient{
 		cron:       gcron.New(),
-		logger:     logger,
+		logger:     l,
 		httpClient: gclient.New(),
 		cache:      gcache.New(),
 	}, nil
@@ -70,16 +86,7 @@ func (e *ExchangeRateClient) StartCron() (err error) {
 	return
 }
 
-// RoundType 取整类型
-type RoundType int
-
-const (
-	RoundTypeDefault RoundType = iota // 默认四舍五入
-	RoundTypeFloor                    // 向下取整
-	RoundTypeCeil                     // 向上取整
-)
-
-// ConvertExchangeRate 执行货币最小单位金额的汇率转换
+// Convert 执行货币最小单位金额的汇率转换
 //
 // 参数:
 //
@@ -93,7 +100,12 @@ const (
 //
 //	targetUnitAmount - 转换后的目标货币最小单位金额
 //	err             - 错误信息
-func (e *ExchangeRateClient) ConvertExchangeRate(ctx context.Context, unitAmount int64, from, target Currency, roundType ...RoundType) (targetUnitAmount int64, err error) {
+func (e *ExchangeRateClient) Convert(
+	ctx context.Context,
+	unitAmount int64,
+	from, target Currency,
+	roundType ...RoundType,
+) (targetUnitAmount int64, err error) {
 	if from == target {
 		return unitAmount, nil
 	}
@@ -121,7 +133,7 @@ func (e *ExchangeRateClient) ConvertExchangeRate(ctx context.Context, unitAmount
 	return
 }
 
-// ConvertExchangeRateToStandardUnit 执行货币最小单位金额的汇率转换, 返回标准货币单位
+// ConvertToStandard 执行货币最小单位金额的汇率转换, 返回标准货币单位
 //
 // 参数:
 //
@@ -135,12 +147,17 @@ func (e *ExchangeRateClient) ConvertExchangeRate(ctx context.Context, unitAmount
 //
 //	amount - 标准货币单位
 //	err    - 错误信息
-func (e *ExchangeRateClient) ConvertExchangeRateToStandardUnit(ctx context.Context, unitAmount int64, from, target Currency, roundType ...RoundType) (amount float64, err error) {
-	targetUnitAmount, err := e.ConvertExchangeRate(ctx, unitAmount, from, target, roundType...)
+func (e *ExchangeRateClient) ConvertToStandard(
+	ctx context.Context,
+	unitAmount int64,
+	from, target Currency,
+	roundType ...RoundType,
+) (amount float64, err error) {
+	targetUnitAmount, err := e.Convert(ctx, unitAmount, from, target, roundType...)
 	if err != nil {
 		return
 	}
-	return ToAmount(targetUnitAmount, target), nil
+	return MinorToStandardUnit(targetUnitAmount, target), nil
 
 }
 func (e *ExchangeRateClient) GetRate(ctx context.Context, from, target Currency) (rate float64, err error) {
@@ -180,14 +197,13 @@ func (e *ExchangeRateClient) refresh(ctx context.Context) {
 	var res *exchangeRateResponse
 	err := e.httpClient.Retry(2, 2*time.Second).GetVar(ctx, sourceApi).Scan(&res)
 	if err != nil {
-		e.logger.Error(ctx, "[get remote data error]:", err.Error())
+		e.logger.Error(ctx, "get remote data error:", err.Error())
 		return
 	}
 	if res == nil {
-		e.logger.Error(ctx, "[get remote data null]")
+		e.logger.Error(ctx, "get remote data null")
 		return
 	}
-	e.logger.Info(ctx, "remote exchange rate, CurrencyJPY:", res.Rates[string(CurrencyJPY)])
 	// 存入缓存
 	for k, v := range res.Rates {
 		e.setCache(ctx, k, v)
@@ -195,7 +211,7 @@ func (e *ExchangeRateClient) refresh(ctx context.Context) {
 
 }
 
-// ToUnitAmount 将标准货币单位转为最小货币单位
+// StandardToMinorUnit
 //
 // 参数：
 //
@@ -218,7 +234,7 @@ func (e *ExchangeRateClient) refresh(ctx context.Context) {
 // 参考文档：
 //
 //	Stripe货币处理规范：https://docs.stripe.com/currencies#zero-decimal
-func ToUnitAmount(amount float64, c Currency, roundType ...RoundType) (unitAmount int) {
+func StandardToMinorUnit(amount float64, c Currency, roundType ...RoundType) (unitAmount int) {
 	if !slices.Contains(ZeroDecimalCurrency, c) {
 		amount = amount * 100
 	}
@@ -239,33 +255,20 @@ func ToUnitAmount(amount float64, c Currency, roundType ...RoundType) (unitAmoun
 	return
 }
 
-// ToAmount 将最小货币单位转为标准货币单位
+// MinorToStandardUnit 将最小货币单位转为标准货币单位
 //
 // 参数：
 //
 //	unitAmount - 最小货币单位金额（如USD 1099 表示 10.99 美元，JPY 500 表示 500 日元）
 //	currency   - 三字母ISO货币代码（如USD/JPY）
-//	roundType  - 舍入方式（Floor向下取整/Ceil向上取整/默认四舍五入）
 //
 // 返回值：
 //
 //	amount     - 标准货币单位金额（如USD输入1099返回10.99，JPY输入500返回500）
-func ToAmount(unitAmount int64, c Currency, roundType ...RoundType) (amount float64) {
+func MinorToStandardUnit(unitAmount int64, c Currency) (amount float64) {
 	amount = float64(unitAmount)
 	if !slices.Contains(ZeroDecimalCurrency, c) {
 		amount = amount / 100
-	}
-	var rt RoundType
-	if len(roundType) > 0 {
-		rt = roundType[0]
-	}
-	switch rt {
-	case RoundTypeFloor:
-		amount = math.Floor(amount)
-	case RoundTypeCeil:
-		amount = math.Ceil(amount)
-	default:
-		amount = math.Round(amount)
 	}
 	return
 }

@@ -7,26 +7,19 @@ import (
 	"testing"
 
 	"github.com/gogf/gf/v2/os/gctx"
-	"github.com/gogf/gf/v2/os/glog"
 	"github.com/ppoonk/paykit"
 )
 
 // clear && go test -v test/stripe_test.go
 func TestStripe(t *testing.T) {
 	ctx := gctx.New()
-	// 配置日志
-	l := glog.New()
-	l.SetPrefix("[Test]")
-	l.SetLevelStr("info")
-	l.SetPath("./.log/stripe")
-	l.SetStack(false)
 	stripeConfig := paykit.StripeConfig{
 		Name:           "NewStripeClient",
 		Key:            os.Getenv("StripeTestKey"),
 		EndpointSecret: os.Getenv("StripeTestEndpointSecret"),
 	}
 
-	c, err := paykit.NewStripeClient(stripeConfig, l, func(s string) {
+	c, err := paykit.NewStripeClient(stripeConfig, func(s string) {
 		t.Log("webhook handler, current out_trade_no: ", s)
 	})
 	if err != nil {
@@ -41,8 +34,6 @@ func TestStripe(t *testing.T) {
 		OutTradeNo:     "order_112233",
 		TotalAmount:    1000,
 		Currency:       paykit.CurrencyCNY,
-		SuccessURL:     "https://www.baidu.com",
-		CancelURL:      "https://www.baidu.com",
 	})
 	if err != nil {
 		t.Error("c.TradePrecreate error", err.Error())
