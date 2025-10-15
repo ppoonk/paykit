@@ -17,6 +17,7 @@ func TestTron(t *testing.T) {
 	ctx := gctx.New()
 
 	config := paykit.TronConfig{
+		PaymentKey:   "Tron 1",
 		APIKey:       "",
 		Address:      os.Getenv("CollectionAddress"),
 		OrderTimeout: 60,
@@ -74,7 +75,7 @@ func TestTron(t *testing.T) {
 
 	req2 := &paykit.TradePreCreateReq{
 		OutTradeNo:  "TEST_002",
-		TotalAmount: 20000, // 100 CNY - 相同金额
+		TotalAmount: 20000, // 200 CNY
 		Currency:    "CNY",
 		Extra: paykit.TronExtraForTradePreCreateReq{
 			TokenSymbol: paykit.USDT_TRC20,
@@ -120,12 +121,12 @@ func TestTronTransactions(t *testing.T) {
 		t.Errorf("NewTron error: %v", err)
 		return
 	}
-	err = tronClient.StartCron()
+	err = tronClient.Start()
 	if err != nil {
-		t.Errorf("StartCron error: %v", err)
+		t.Errorf("Start error: %v", err)
 		return
 	}
-	t.Log("StartCron Success")
+	t.Log("Start Success")
 
 	// 模拟数据, 可用测试钱包转入相同金额测试
 	outTradeNo := "12345678"

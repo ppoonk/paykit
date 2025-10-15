@@ -10,19 +10,23 @@ import (
 	"github.com/gogf/gf/v2/os/glog"
 )
 
+var _ PaymentInterface = (*EpayClient)(nil)
+
 const (
-	epayLogTag   = "[Epay]"
-	epayLogPath  = "./.log/epay"
-	epayLogLevel = "error"
+	_EPAY_LOG_TAG       = "[Epay]"
+	_EPAY_LOG_PATH      = "./.log/epay"
+	_EPAY_LOG_LEVEL     = "error"
+	_EPAY_TRADE_SUCCESS = "TRADE_SUCCESS"
+	_EPAY_SUCCESS_RESP  = "success"
 )
 
 type EpayConfig struct {
-	Name      string
-	Url       string // 页面跳转支付 url, 一般格式为: https://xxxxxxxx/submit.php
-	Key       string
-	Pid       string
-	NotifyUrl string
-	ReturnUrl string
+	PaymentKey any
+	Url        string // 页面跳转支付 url, 一般格式为: https://xxxxxxxx/submit.php
+	Key        string
+	Pid        string
+	NotifyURL  string
+	ReturnURL  string
 }
 
 type EpayClient struct {
@@ -34,9 +38,9 @@ type EpayClient struct {
 func NewEpayClient(config EpayConfig, fulfillCheckout func(string)) (*EpayClient, error) {
 	// 设置日志
 	l := glog.New()
-	_ = l.SetPath(epayLogPath)
-	_ = l.SetLevelStr(epayLogLevel)
-	l.SetPrefix(epayLogTag)
+	_ = l.SetPath(_EPAY_LOG_PATH)
+	_ = l.SetLevelStr(_EPAY_LOG_LEVEL)
+	l.SetPrefix(_EPAY_LOG_TAG)
 	l.SetStack(false)
 
 	return &EpayClient{
@@ -56,23 +60,23 @@ func (e *EpayClient) TradePrecreate(ctx context.Context, req *TradePreCreateReq)
 	if amount < 0.01 {
 		amount = 0.01
 	}
-	payUrl := fmt.Sprintf(
+	payURL := fmt.Sprintf(
 		"money=%s&name=%s&notify_url=%s&out_trade_no=%s&pid=%s&return_url=%s",
 		fmt.Sprintf("%.2f", amount),
 		req.ProductSubject,
-		e.config.NotifyUrl,
+		e.config.NotifyURL,
 		req.OutTradeNo,
 		e.config.Pid,
-		e.config.ReturnUrl,
+		e.config.ReturnURL,
 	)
-	sign := gmd5.MustEncryptString(payUrl + e.config.Key)
-	payUrl = fmt.Sprintf("%s?%s&sign=%s&sign_type=MD5", e.config.Url, payUrl, sign)
+	sign := gmd5.MustEncryptString(payURL + e.config.Key)
+	payURL = fmt.Sprintf("%s?%s&sign=%s&sign_type=MD5", e.config.Url, payURL, sign)
 
-	e.logger.Debugf(ctx, "epay payUrl: %s", payUrl)
+	e.logger.Debugf(ctx, "epay pay url: %s", payURL)
 
 	return &TradePreCreateRes{
 		OutTradeNo: req.OutTradeNo,
-		PayURL:     payUrl,
+		PayURL:     payURL,
 	}, nil
 
 }
@@ -90,9 +94,10 @@ func (e *EpayClient) Notify(w http.ResponseWriter, req *http.Request) {
 	status := req.Form.Get("trade_status")
 
 	e.logger.Debugf(ctx, "out_trade_no: %v, trade_status: %s", no, status)
-	if status == "TRADE_SUCCESS" {
+
+	if status == _EPAY_TRADE_SUCCESS {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success"))
+		w.Write([]byte(_EPAY_SUCCESS_RESP))
 		e.fulfillCheckout(no)
 		return
 	}
@@ -100,4 +105,17 @@ func (e *EpayClient) Notify(w http.ResponseWriter, req *http.Request) {
 }
 func (e *EpayClient) SetDebug(debug bool) {
 	e.logger.SetDebug(debug)
+}
+
+func (s *EpayClient) Start() error {
+	return nil
+}
+func (s *EpayClient) Stop() {
+
+}
+func (s *EpayClient) PaymentKey() any {
+	return s.config.PaymentKey
+}
+func (s *EpayClient) PaymentType() PaymentType {
+	return PAYMENT_TYPE_EPAY
 }

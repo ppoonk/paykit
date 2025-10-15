@@ -14,12 +14,12 @@ import (
 )
 
 const (
-	sourceApi      = "https://open.er-api.com/v6/latest/CNY"
-	jobName        = "RefreshExchangeRateCronJob"
-	erLogTag       = "[ExchangeRate]"
-	erLogPath      = "./log/exchange"
-	erLogLevel     = "error"
-	defaultTimeout = 24 * time.Hour
+	_SOURCE_API      = "https://open.er-api.com/v6/latest/CNY"
+	_JOB_NAME        = "RefreshExchangeRateCronJob"
+	_ER_LOG_TAG      = "[ExchangeRate]"
+	_ER_LOG_PATH     = "./log/exchange"
+	_ER_LOG_LEVEL    = "error"
+	_DEFAULT_TIMEOUT = 24 * time.Hour
 )
 
 // exchangeRateResponse  汇率 api 响应结构体
@@ -47,7 +47,7 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	err = ERInstance.StartCron()
+	err = ERInstance.Start()
 	if err != nil {
 		panic(err)
 	}
@@ -65,9 +65,9 @@ type ExchangeRateClient struct {
 func NewExchangeRate() (client *ExchangeRateClient, err error) {
 	// 设置日志
 	l := glog.New()
-	_ = l.SetPath(erLogPath)
-	_ = l.SetLevelStr(erLogLevel)
-	l.SetPrefix(erLogTag)
+	_ = l.SetPath(_ER_LOG_PATH)
+	_ = l.SetLevelStr(_ER_LOG_LEVEL)
+	l.SetPrefix(_ER_LOG_TAG)
 	l.SetStack(false)
 
 	return &ExchangeRateClient{
@@ -78,11 +78,11 @@ func NewExchangeRate() (client *ExchangeRateClient, err error) {
 	}, nil
 }
 
-// StartCron 启动定时任务，自动更新汇率数据并保存到数据库
-func (e *ExchangeRateClient) StartCron() (err error) {
+// Start 启动定时任务，自动更新汇率数据并保存到数据库
+func (e *ExchangeRateClient) Start() (err error) {
 	ctx := gctx.New()
-	_, err = e.cron.Add(ctx, "6 6 6 * * *", e.refresh, jobName) // 每天 06:06:06 执行
-	e.refresh(ctx)                                              // 启动时更新一次
+	_, err = e.cron.Add(ctx, "6 6 6 * * *", e.refresh, _JOB_NAME) // 每天 06:06:06 执行
+	e.refresh(ctx)                                                // 启动时更新一次
 	return
 }
 
@@ -190,12 +190,12 @@ func (e *ExchangeRateClient) getCache(ctx context.Context, key string) (rate flo
 	return *res, nil
 }
 func (e *ExchangeRateClient) setCache(ctx context.Context, key string, rates float64) {
-	e.cache.Set(ctx, key, rates, defaultTimeout)
+	e.cache.Set(ctx, key, rates, _DEFAULT_TIMEOUT)
 }
 
 func (e *ExchangeRateClient) refresh(ctx context.Context) {
 	var res *exchangeRateResponse
-	err := e.httpClient.Retry(2, 2*time.Second).GetVar(ctx, sourceApi).Scan(&res)
+	err := e.httpClient.Retry(2, 2*time.Second).GetVar(ctx, _SOURCE_API).Scan(&res)
 	if err != nil {
 		e.logger.Error(ctx, "get remote data error:", err.Error())
 		return

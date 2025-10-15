@@ -10,39 +10,35 @@ import (
 	"github.com/smartwalle/alipay/v3"
 )
 
-var (
-	_ PaymentInterface = (*AlipayClient)(nil)
-)
+var _ PaymentInterface = (*AlipayClient)(nil)
 
 const (
-	alipayLogTag   = "[Alipay]"
-	alipayLogPath  = "./log/alipay"
-	alipayLogLevel = "error"
+	_ALIPAY_LOG_TAG   = "[Alipay]"
+	_ALIPAY_LOG_PATH  = "./log/alipay"
+	_ALIPAY_LOG_LEVEL = "error"
 )
 
-type (
-	AlipayConfig struct {
-		Name             string
-		AppId            string
-		AppPrivateKey    string // 应用私钥
-		AlipayPublicCert string // 支付宝公钥
-		IsProd           bool   // 是否生产环境
-		SuccessURL       string // 成功回调URL
-	}
-	AlipayClient struct {
-		config          AlipayConfig
-		client          *alipay.Client
-		logger          *glog.Logger
-		fulfillCheckout func(string)
-	}
-)
+type AlipayConfig struct {
+	PaymentKey       any
+	AppId            string
+	AppPrivateKey    string // 应用私钥
+	AlipayPublicCert string // 支付宝公钥
+	IsProd           bool   // 是否生产环境
+	SuccessURL       string // 成功回调URL
+}
+type AlipayClient struct {
+	config          AlipayConfig
+	client          *alipay.Client
+	logger          *glog.Logger
+	fulfillCheckout func(string)
+}
 
 func NewAlipayClient(config AlipayConfig, fulfillCheckout func(string)) (*AlipayClient, error) {
 	// 设置日志
 	l := glog.New()
-	_ = l.SetPath(alipayLogPath)
-	_ = l.SetLevelStr(alipayLogLevel)
-	l.SetPrefix(alipayLogTag)
+	_ = l.SetPath(_ALIPAY_LOG_PATH)
+	_ = l.SetLevelStr(_ALIPAY_LOG_LEVEL)
+	l.SetPrefix(_ALIPAY_LOG_TAG)
 	l.SetStack(false)
 
 	client, err := alipay.New(config.AppId, config.AppPrivateKey, config.IsProd)
@@ -111,4 +107,17 @@ func (a *AlipayClient) Notify(w http.ResponseWriter, req *http.Request) {
 
 func (a *AlipayClient) SetDebug(debug bool) {
 	a.logger.SetDebug(debug)
+}
+
+func (s *AlipayClient) Start() error {
+	return nil
+}
+func (s *AlipayClient) Stop() {
+
+}
+func (s *AlipayClient) PaymentKey() any {
+	return s.config.PaymentKey
+}
+func (s *AlipayClient) PaymentType() PaymentType {
+	return PAYMENT_TYPE_ALIPAY
 }

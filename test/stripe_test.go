@@ -14,8 +14,8 @@ import (
 func TestStripe(t *testing.T) {
 	ctx := gctx.New()
 	stripeConfig := paykit.StripeConfig{
-		Name:           "NewStripeClient",
-		Key:            os.Getenv("StripeTestKey"),
+		PaymentKey:     "Stripe 1",
+		StripeKey:      os.Getenv("StripeTestKey"),
 		EndpointSecret: os.Getenv("StripeTestEndpointSecret"),
 	}
 

@@ -21,12 +21,12 @@ func TestEpayTradePrecreate(t *testing.T) {
 		}
 
 		config = paykit.EpayConfig{
-			Name:      "epay test account",
-			Url:       os.Getenv("EpayUrl"),
-			Pid:       os.Getenv("EpayPid"),
-			Key:       os.Getenv("EpayKey"),
-			NotifyUrl: os.Getenv("NotifyUrl"),
-			ReturnUrl: os.Getenv("ReturnUrl"),
+			PaymentKey: "Epay 1",
+			Url:        os.Getenv("EpayUrl"),
+			Pid:        os.Getenv("EpayPid"),
+			Key:        os.Getenv("EpayKey"),
+			NotifyURL:  os.Getenv("NotifyUrl"),
+			ReturnURL:  os.Getenv("ReturnUrl"),
 		}
 
 		err = error(nil)

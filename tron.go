@@ -3,6 +3,7 @@ package paykit
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -15,16 +16,26 @@ import (
 	"github.com/gogf/gf/v2/os/glog"
 )
 
+var _ PaymentInterface = (*TronClient)(nil)
+
 const (
-	mainnet         = "https://api.trongrid.io/v1/accounts/{address}/transactions/trc20"
-	nileTestnet     = "https://nile.trongrid.io/v1/accounts/{address}/transactions/trc20"
-	trongridJobName = "Trongrid transactions"
-	tronLogTag      = "[Tron]"
-	tronLogPath     = "./.log/tron"
-	tronLogLevel    = "error"
+	_MAINNET           = "https://api.trongrid.io/v1/accounts/{address}/transactions/trc20"
+	_NILE_TESTNET      = "https://nile.trongrid.io/v1/accounts/{address}/transactions/trc20"
+	_TRONGRID_JOB_NAME = "Trongrid transactions"
+	_TRON_LOG_TAG      = "[Tron]"
+	_TRON_LOG_PATH     = "./.log/tron"
+	_TRON_LOG_LEVEL    = "error"
+)
+
+type TokenSymbol string
+
+const (
+	USDT_TRC20 TokenSymbol = "USDT"
+	USDC_TRC20 TokenSymbol = "USDC"
 )
 
 type TronConfig struct {
+	PaymentKey   any
 	Address      string        // 收款钱包地址
 	APIKey       string        // Trongrid API密钥，用于监听网络交易。如果为空，则使用测试网
 	AcceptTokens []TokenSymbol // 可接受的代币类型，如 USDT, USDC 等
@@ -58,29 +69,7 @@ type TronExtraForTradePreCreateRes struct {
 	TokenSymbol       TokenSymbol `json:"tokenSymbol"`       // 当前订单指定的代币符号(USDT, USDC等)
 }
 
-type (
-	// 区块链网络类型
-	Blockchain string
-	// 代币类型
-	Token string
-	// TRC20代币具体类型
-	TokenSymbol string
-)
-
-const (
-	TRON     Blockchain = "TRON"
-	BSC      Blockchain = "BSC"
-	ETHEREUM Blockchain = "ETHEREUM"
-
-	TRX   Token = "TRX"
-	TRC10 Token = "TRC10"
-	TRC20 Token = "TRC20"
-
-	USDT_TRC20 TokenSymbol = "USDT"
-	USDC_TRC20 TokenSymbol = "USDC"
-)
-
-type Tron struct {
+type TronClient struct {
 	config          TronConfig
 	logger          *glog.Logger
 	httpClient      *gclient.Client
@@ -89,15 +78,15 @@ type Tron struct {
 	fulfillCheckout func(string)
 }
 
-func NewTron(config TronConfig, fulfillCheckout func(string)) (*Tron, error) {
+func NewTron(config TronConfig, fulfillCheckout func(string)) (*TronClient, error) {
 	// 设置日志
 	l := glog.New()
-	_ = l.SetPath(tronLogPath)
-	_ = l.SetLevelStr(tronLogLevel)
-	l.SetPrefix(tronLogTag)
+	_ = l.SetPath(_TRON_LOG_PATH)
+	_ = l.SetLevelStr(_TRON_LOG_LEVEL)
+	l.SetPrefix(_TRON_LOG_TAG)
 	l.SetStack(false)
 
-	return &Tron{
+	return &TronClient{
 		config:          config,
 		httpClient:      gclient.New(),
 		cron:            gcron.New(),
@@ -107,7 +96,7 @@ func NewTron(config TronConfig, fulfillCheckout func(string)) (*Tron, error) {
 	}, nil
 }
 
-func (t *Tron) TradePrecreate(ctx context.Context, req *TradePreCreateReq) (res *TradePreCreateRes, err error) {
+func (t *TronClient) TradePrecreate(ctx context.Context, req *TradePreCreateReq) (res *TradePreCreateRes, err error) {
 	// 处理 tron 扩展参数
 	ex := req.Extra.(TronExtraForTradePreCreateReq)
 	if !slices.Contains(t.config.AcceptTokens, ex.TokenSymbol) {
@@ -119,18 +108,20 @@ func (t *Tron) TradePrecreate(ctx context.Context, req *TradePreCreateReq) (res 
 	if err != nil {
 		return nil, err
 	}
+
 	if ta <= 0 {
 		ta = 0.01
 	}
 
 	// 原理类似于：https://github.com/assimon/epusdt
+	// 缓存：key=价格 value=订单号
 	for i := range 100 {
 		if i == 100 {
 			err = fmt.Errorf("amount %.2f failed to generate key", ta)
 			return
 		}
 		if exist, _ := t.cache.Contains(ctx, ta); !exist {
-			t.cache.Set(ctx, ta, req.OutTradeNo, 0) // TODO 缓存时间
+			t.cache.Set(ctx, ta, req.OutTradeNo, time.Minute*30) // TODO 缓存时间：30分钟
 			break
 		}
 		ta += 0.01
@@ -146,31 +137,34 @@ func (t *Tron) TradePrecreate(ctx context.Context, req *TradePreCreateReq) (res 
 	}, nil
 
 }
-func (t *Tron) Cacha() *gcache.Cache {
+func (t *TronClient) Cacha() *gcache.Cache {
 	return t.cache
 }
 
-func (t *Tron) StartCron() (err error) {
+func (t *TronClient) Start() (err error) {
 	ctx := gctx.New()
-	_, err = t.cron.Add(ctx, "*/5 * * * * *", t.refresh, trongridJobName)
+	_, err = t.cron.Add(ctx, "*/5 * * * * *", t.refresh, _TRONGRID_JOB_NAME) // 每 5 秒执行一次
 	t.refresh(ctx)
 	return
 }
-func (t *Tron) refresh(ctx context.Context) {
+func (t *TronClient) Stop() {
+
+}
+func (t *TronClient) refresh(ctx context.Context) {
 	var (
 		url    string
 		res    *trongridRes
 		params = map[string]any{
 			"only_confirmed": true,
 			"only_to":        true,
-			"min_timestamp":  time.Now().UnixMilli() - 10*1000, // 10秒
+			"min_timestamp":  time.Now().UnixMilli() - 10*1000, // 拉取 10秒 之前的数据
 			"max_timestamp":  time.Now().UnixMilli(),
 		}
 	)
 	if t.config.APIKey == "" {
-		url = strings.ReplaceAll(nileTestnet, "{address}", t.config.Address)
+		url = strings.ReplaceAll(_NILE_TESTNET, "{address}", t.config.Address)
 	} else {
-		url = strings.ReplaceAll(mainnet, "{address}", t.config.Address)
+		url = strings.ReplaceAll(_MAINNET, "{address}", t.config.Address)
 	}
 
 	err := t.httpClient.GetVar(ctx, url, params).Scan(&res)
@@ -180,21 +174,25 @@ func (t *Tron) refresh(ctx context.Context) {
 	}
 	t.logger.Debug(ctx, "refresh tron transactions, data lenght: ", len(res.Data))
 	for _, v := range res.Data {
+		// api 接口返回的金额为 TRC20 代币的最小单位
 		amount, err := strconv.ParseFloat(v.Value, 64)
 		if err != nil {
 			t.logger.Error(ctx, err.Error())
 			continue
 		}
-		amount = amount / 1e6 // 单位为 0.01，和上面 USD 保持一致
-		t.logger.Debugf(ctx, "refresh tron transactions, amount: %.2f", amount)
+		// 目前只支持 USDT_TRC20，USDC_TRC20
+		// TRC20 代币的最小单位值需要除以100万才能得到标准单位： 1 USDT = 1,000,000 最小单位
+		// 精度为 0.01，和上面 TradePrecreate 时 最终的价格（key）保持一致
+		key := amount / 1e6
+		t.logger.Debugf(ctx, "refresh tron transactions, amount(key): %.2f", key)
 
-		va, err := t.cache.Get(ctx, amount)
+		va, err := t.cache.Get(ctx, key)
 		if err != nil {
 			t.logger.Error(ctx, err.Error())
 			continue
 		}
 		if va == nil {
-			t.logger.Debugf(ctx, "refresh tron transactions, amount: %.2f, invalid order, continue", amount)
+			t.logger.Debugf(ctx, "refresh tron transactions, amount(key): %.2f, invalid order, continue", amount)
 			continue
 		}
 		var outTradeNo string
@@ -203,7 +201,7 @@ func (t *Tron) refresh(ctx context.Context) {
 			t.logger.Error(ctx, err.Error())
 			continue
 		}
-		t.logger.Debugf(ctx, "refresh tron transactions, amount: %.2f, outTradeNo: %s", amount, outTradeNo)
+		t.logger.Debugf(ctx, "refresh tron transactions, amount(key): %.2f, outTradeNo: %s", amount, outTradeNo)
 
 		// 释放 key
 		t.cache.Remove(ctx, v.Value)
@@ -211,4 +209,13 @@ func (t *Tron) refresh(ctx context.Context) {
 		t.fulfillCheckout(outTradeNo)
 	}
 	return
+}
+func (t *TronClient) Notify(http.ResponseWriter, *http.Request) {
+
+}
+func (t *TronClient) PaymentKey() any {
+	return t.config.PaymentKey
+}
+func (t *TronClient) PaymentType() PaymentType {
+	return PAYMENT_TYPE_TRON
 }

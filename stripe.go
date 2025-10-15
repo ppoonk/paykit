@@ -16,15 +16,15 @@ import (
 )
 
 const (
-	OUT_TRADE_NO   = "OUT_TRADE_NO"
-	stripeLogTag   = "[Stripe]"
-	stripeLogPath  = "./.log/stripe"
-	stripeLogLevel = "error"
+	_OUT_TRADE_NO     = "OUT_TRADE_NO"
+	_STRIPE_LOG_TAG   = "[Stripe]"
+	_STRIPE_LOG_PATH  = "./.log/stripe"
+	_STRIPE_LOG_LEVEL = "error"
 )
 
 type StripeConfig struct {
-	Name           string
-	Key            string
+	PaymentKey     any
+	StripeKey      string
 	EndpointSecret string
 	SuccessURL     string // 成功回调URL
 	CancelURL      string // 失败回调URL
@@ -43,14 +43,14 @@ type StripeClient struct {
 func NewStripeClient(config StripeConfig, fulfillCheckout func(string)) (*StripeClient, error) {
 	// 设置日志
 	l := glog.New()
-	_ = l.SetPath(stripeLogPath)
-	_ = l.SetLevelStr(stripeLogLevel)
-	l.SetPrefix(stripeLogTag)
+	_ = l.SetPath(_STRIPE_LOG_PATH)
+	_ = l.SetLevelStr(_STRIPE_LOG_LEVEL)
+	l.SetPrefix(_STRIPE_LOG_TAG)
 	l.SetStack(false)
 
 	return &StripeClient{
 		config:          config,
-		client:          stripe.NewClient(config.Key),
+		client:          stripe.NewClient(config.StripeKey),
 		endpointSecret:  config.EndpointSecret,
 		logger:          l,
 		fulfillCheckout: fulfillCheckout,
@@ -81,7 +81,7 @@ func (s *StripeClient) TradePrecreate(ctx context.Context, req *TradePreCreateRe
 		SuccessURL: stripe.String(s.config.SuccessURL),
 		CancelURL:  stripe.String(s.config.CancelURL),
 		Metadata: map[string]string{
-			OUT_TRADE_NO: req.OutTradeNo,
+			_OUT_TRADE_NO: req.OutTradeNo,
 		},
 	}
 	params.AddExtra("payment_method_options[wechat_pay][client]", "web")
@@ -130,7 +130,19 @@ func (s *StripeClient) Notify(w http.ResponseWriter, req *http.Request) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		s.fulfillCheckout(cs.Metadata[OUT_TRADE_NO])
+		s.fulfillCheckout(cs.Metadata[_OUT_TRADE_NO])
 	}
 	w.WriteHeader(http.StatusOK)
+}
+func (s *StripeClient) Start() error {
+	return nil
+}
+func (s *StripeClient) Stop() {
+
+}
+func (s *StripeClient) PaymentKey() any {
+	return s.config.PaymentKey
+}
+func (s *StripeClient) PaymentType() PaymentType {
+	return PAYMENT_TYPE_STRIPE
 }

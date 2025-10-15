@@ -23,7 +23,7 @@ func TestTradePrecreate(t *testing.T) {
 			Currency:       "CNY",
 		}
 		config = paykit.AlipayConfig{
-			Name:             "alipay sandbox account",
+			PaymentKey:       "Alipay 1",
 			AppId:            os.Getenv("AlipaySandbox_AppId"),
 			AppPrivateKey:    os.Getenv("AlipaySandbox_AppPrivateKey"),
 			AlipayPublicCert: os.Getenv("AlipaySandbox_AlipayPublicCert"),
